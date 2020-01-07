@@ -118,3 +118,9 @@ serverlog\.txt
 src/server/registration/subject\.db
 
 \.DS_Store
+
+# Pulseq sequence files
+.seq
+
+# Simulated data
+.npy
