@@ -14,12 +14,14 @@ from pypulseq.make_sinc_pulse import make_sinc_pulse
 from pypulseq.opts import Opts
 from rf_sim.rf_helpers import *
 from pypulseq.make_arbitrary_rf import make_arbitrary_rf
+from scipy.io import savemat
+
 
 # Constants
 GAMMA = 42.58e6 * 2 * pi
 
 # Caller function
-def simulate_rf(bw_spins, n_spins, pdt1t2, flip_angle, dt, pulse_type, dur = 0, solver="Euler",**kwargs):
+def simulate_rf(bw_spins, n_spins, pdt1t2, flip_angle, dt, pulse_type, dur = 0, solver="Euler", display=True, **kwargs):
     '''Simulates and plots absolute signal (|Mxy|) of isochromats over time
 
     Parameters
@@ -49,7 +51,7 @@ def simulate_rf(bw_spins, n_spins, pdt1t2, flip_angle, dt, pulse_type, dur = 0, 
 
 
     # Create list of spins
-    df_array = np.linspace(0, bw_spins/2, n_spins)
+    df_array = np.linspace(-bw_spins/2, bw_spins/2, n_spins)
 
     if solver=="Euler":
         spins = [sg.SpinGroup(loc=(0, 0, 0), pdt1t2=pdt1t2, df=this_df) for this_df in df_array]
@@ -63,8 +65,10 @@ def simulate_rf(bw_spins, n_spins, pdt1t2, flip_angle, dt, pulse_type, dur = 0, 
 
     # Simulate
     # TODO make sure that NumSolverSpinGroup also returns in the same format (in spingroup_ps.py)
-    all_signals = [spin.apply_rf_store(pulse_shape, grads_shape, dt)[0] for spin in spins]
+    all_results = [spin.apply_rf_store(pulse_shape, grads_shape, dt) for spin in spins]
     #all_ms = [spin.apply_rf_solveivp_store(pulse_shape, grads_shape, dt)[0] for spin in spins]
+    all_signals = np.array([result[0] for result in all_results])
+    all_magnetizations = np.array([result[1] for result in all_results])
 
     fig = plt.figure(1)
     ax = fig.add_axes(xlim=(0, 4), ylim=(-2, 2))
@@ -78,14 +82,30 @@ def simulate_rf(bw_spins, n_spins, pdt1t2, flip_angle, dt, pulse_type, dur = 0, 
     else:
         bw_info=''
 
-    plt.title(pulse_type + ' RF pulse ' + bw_info + ' applied to isochromats')
-    plt.legend(['df = '+ str(df) + ' Hz' for df in df_array])
+    if display:
+        plt.title(pulse_type + ' RF pulse ' + bw_info + ' applied to isochromats')
+        plt.legend(['df = '+ str(df) + ' Hz' for df in df_array])
 
-    plt.xlabel('Time (s)')
-    plt.ylabel('Mxy (a.u.)')
-    plt.show()
+        plt.xlabel('Time (s)')
+        plt.ylabel('Mxy (a.u.)')
+        plt.show()
 
-    return all_signals
+
+        mzs = np.squeeze(all_magnetizations[:,2,:])
+        fig2 = plt.figure(2)
+
+        for b in range(len(spins)):
+            plt.plot(tmodel, mzs[b,:])
+
+        plt.title(pulse_type + ' RF pulse ' + bw_info + ' applied to isochromats')
+        plt.legend(['df = '+ str(df) + ' Hz' for df in df_array])
+
+        plt.xlabel('Time (s)')
+        plt.ylabel('Mz (a.u.)')
+        plt.show()
+
+
+    return all_signals, all_magnetizations
 
 
 def animate_rf_action(bw_spins, n_spins, pdt1t2, pulse_type, flip_angle, dt=1e-6, dur = 0, solver="Euler",
@@ -138,7 +158,7 @@ def animate_rf_action(bw_spins, n_spins, pdt1t2, pulse_type, flip_angle, dt=1e-6
     animate_spins(all_ms, acc_factor=acc_factor, save_fig=save_fig, title=title)
 
 
-def make_rf_shapes(pulse_type, flip_angle, dt, dur=0,**kwargs):
+def make_rf_shapes(pulse_type, flip_angle, dt, dur=0, tmodel=None, **kwargs):
     """
     Parameters
     ----------
@@ -165,7 +185,6 @@ def make_rf_shapes(pulse_type, flip_angle, dt, dur=0,**kwargs):
     time_points : np.ndarray
         Used only for custom pulse - where B1+(t) is sampled in time.
 
-
     Returns
     -------
     tmodel : np.ndarray
@@ -188,11 +207,11 @@ def make_rf_shapes(pulse_type, flip_angle, dt, dur=0,**kwargs):
 
         if 'nzc' not in kwargs:
             print("#zero crossings not given - using the specified duration instead.")
-            tmodel = np.linspace(-dur / 2, dur / 2, dur / dt)
+            tmodel = np.linspace(-dur / 2, dur / 2, int(dur / dt))
         else:
             nzc = kwargs['nzc']
             tzc = 1 / bw_rf
-            tmodel = np.linspace(-nzc * tzc / 2, nzc * tzc / 2, nzc * tzc / dt)
+            tmodel = np.linspace(-nzc * tzc / 2, nzc * tzc / 2, int(nzc * tzc / dt))
 
         pulse_shape = np.sin(pi * bw_rf * tmodel) / (pi * bw_rf * tmodel)
         b1 = (flip_angle * pi / 180) / (GAMMA * np.trapz(pulse_shape, tmodel))
@@ -276,13 +295,23 @@ if __name__ == '__main__':
     flip = pi
     thk = 5e-3
     rf, g_ss, __ = make_sinc_pulse(flip_angle=flip, system=system, duration=4e-3, slice_thickness=thk,
-                               apodization=0.5, time_bw_product=4)
+                              apodization=0.5, time_bw_product=4, return_gz=True)
 
 
     # Simulate a basic sinc pulse (no apodization )
   #  a = simulate_rf(bw_spins=5e3, n_spins=5, pdt1t2=(pd, t1, t2), flip_angle=90, dt=dt_rf,
    #                     pulse_type='sinc', nzc=8, bw_rf=5e3)
+   #
+    #a = simulate_rf(bw_spins=25e3, n_spins=5, pdt1t2=(pd, t1, t2), flip_angle=90, dt=dt_rf,
+     #                solver="RK45",
+      #               pulse_type='sinc', nzc=8, bw_rf=5e3)
+    GAMMA_BAR = GAMMA/(2*np.pi)
+    rf_dt = rf.t[1] - rf.t[0]
+    print(f'Slice bw : {thk*g_ss.amplitude} Hz')
+    signals, magnetizations = simulate_rf(bw_spins=thk*g_ss.amplitude, n_spins=100, pdt1t2=(pd,t1,t2), flip_angle=90, dt=rf_dt,
+                      solver="RK45",
+                      pulse_type='custom', pulse_shape=rf.signal/GAMMA_BAR, display=False)
+    print(magnetizations.shape)
+    savemat('sinc180_sim_results_5mm_100spins.mat',{'finals_magnetizations': magnetizations[:,:,-1]})
 
-    a = simulate_rf(bw_spins=60e3, n_spins=5, pdt1t2=(pd, t1, t2), flip_angle=90, dt=dt_rf,
-                    solver="RK45",
-                        pulse_type='sinc', nzc=8, bw_rf=5e3)
+

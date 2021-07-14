@@ -16,9 +16,9 @@ import matplotlib.pyplot as plt
 
 import numpy as np
 
-import bloch.phantom as pht
-import bloch.pulseq_blochsim_methods as blcsim
-import bloch.pulseq_library as psl
+import virtualscanner.server.simulation.bloch.phantom as pht
+import virtualscanner.server.simulation.bloch.pulseq_blochsim_methods as blcsim
+import virtualscanner.server.simulation.bloch.pulseq_library as psl
 
 if __name__ == '__main__':
     # Make a phantom

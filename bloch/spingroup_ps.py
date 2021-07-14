@@ -112,9 +112,11 @@ class SpinGroup:
         self.T2 = max(0,self.T2)
         E1 = 1 if self.T1 == 0 else np.exp(-t/self.T1)
         E2 = 1 if self.T2 == 0 else np.exp(-t/self.T2)
+        phi = 2*np.pi*self.df*t
+        C, S = np.cos(phi), np.sin(phi)
 
-        A = np.array([[E2, E2, 0],
-                      [-E2, E2, 0],
+        A = np.array([[E2*C, E2*S, 0],
+                      [-E2*S, E2*C, 0],
                       [0, 0, E1]])
         self.m = A@self.m + np.array([[0], [0], [1 - E1]])
 
@@ -137,18 +139,29 @@ class SpinGroup:
 
         """
         m = self.m
+        dB = self.df/GAMMA_BAR
+        T1_inv = 1/self.T1 if self.T1 > 0 else 0
+        T2_inv = 1/self.T2 if self.T2 > 0 else 0
+
         x,y,z = self.loc
         for v in range(len(pulse_shape)):
             B1 = pulse_shape[v]
             B1x = np.real(B1)
             B1y = np.imag(B1)
             glocp = grads_shape[0,v]*x+grads_shape[1,v]*y+grads_shape[2,v]*z
-            A = np.array([[0, glocp, -B1y],
-                          [-glocp, 0, B1x],
-                          [B1y, -B1x, 0]])
-            m = m + dt*GAMMA*A@m
-        self.m = m
 
+           # A = np.array([[0, glocp, -B1y],
+           #               [-glocp, 0, B1x],
+           #               [B1y, -B1x, 0]])
+          #  m = m + dt*GAMMA*A@m
+
+
+            A = np.array([[-T2_inv, GAMMA*(dB + glocp), -GAMMA*B1y],
+                          [-GAMMA*(dB + glocp), -T2_inv, GAMMA*B1x],
+                          [GAMMA*B1y, -GAMMA*B1x, -T1_inv]])
+            m = m + dt*(A@m + np.array([[0],[0],[T1_inv]]))
+
+        self.m = m
 
     def apply_rf_store(self, pulse_shape, grads_shape, dt):
         """Applies an RF pulse and store magnetization at all time points
@@ -277,7 +290,7 @@ class SpinGroup:
 
         self.signal.append(signal_1D)
 
-    def readout(self,dwell,n,delay,grad,timing):
+    def readout_trapz(self,dwell,n,delay,grad,timing,phase):
         """ ADC sampling for single spin group
 
         Samples spin group's magnetization while playing an arbitrary gradient
@@ -297,6 +310,8 @@ class SpinGroup:
         timing : numpy.ndarray
             1D array with length m
             Timing of gradient waveform
+        phase : float
+            ADC phase in radians
 
         """
 
@@ -308,7 +323,65 @@ class SpinGroup:
                 signal_1D.append(self.get_m_signal())
             self.fpwg(np.trapz(y=grad[:,q:q+2], dx=dwell), dwell)
 
-        self.signal.append(signal_1D)
+        signal_1D_ref = np.array(signal_1D) * np.exp(-1j*phase)
+
+        self.signal.append(signal_1D_ref)
+
+    def readout(self,dwell,n,delay,grad,timing,phase):
+        """ ADC sampling for single spin group
+
+        Samples spin group's magnetization while playing an arbitrary gradient
+        This data is then stored in self.signal
+
+        Parameters
+        ----------
+        dwell : float
+            Constant sampling interval in seconds
+        n : int
+            Number of samples
+        delay : float
+            Delay of the first point sampled relative to beginning of gradient waveform
+        grad : numpy.ndarray
+            2D array with shape 3 x m (i.e. m samples of the 3D gradient (Gx, Gy, Gz))
+            Arbitrary gradient waveform in Tesla/meter
+        timing : numpy.ndarray
+            1D array with length m
+            Timing of gradient waveform
+        phase : float
+            ADC phase in radians
+
+        """
+
+        signal_1D = []
+        # ADC raster time assuming timing is uniformly spaced
+        dt_adc = timing[1] - timing[0]
+
+        N_delay = int(delay / dt_adc)
+        delay_times = dt_adc * np.arange(N_delay)
+        delay_grads = np.zeros((3,N_delay))
+        delay_grads[0,:] = np.interp(delay_times, timing, grad[0,:])
+        delay_grads[1,:] = np.interp(delay_times, timing, grad[1,:])
+        delay_grads[2,:] = np.interp(delay_times, timing, grad[2,:])
+
+        # ADC delay
+        self.fpwg(np.trapz(y=delay_grads, x=delay_times), delay)
+
+        # Readout
+        adc_begin_time = delay
+        N_dwell = int(dwell / dt_adc)
+        for q in range(n):
+            signal_1D.append(self.get_m_signal())
+            dwell_times = adc_begin_time + np.linspace(0,dwell,N_dwell+1,endpoint=True)
+            dwell_grads = np.zeros((3, N_dwell+1))
+            dwell_grads[0,:] = np.interp(dwell_times, timing, grad[0,:])
+            dwell_grads[1,:] = np.interp(dwell_times, timing, grad[1,:])
+            dwell_grads[2,:] = np.interp(dwell_times, timing, grad[2,:])
+            self.fpwg(np.trapz(y=dwell_grads, x=dwell_times), dwell)
+            adc_begin_time += dwell
+
+        signal_1D_ref = np.array(signal_1D) * np.exp(-1j*phase)
+
+        self.signal.append(signal_1D_ref)
 
 
 
@@ -318,11 +391,11 @@ class NumSolverSpinGroup(SpinGroup):
     @staticmethod
     def interpolate_waveforms(grads_shape, pulse_shape, dt):
         # Helper function to generate continuous waveforms
-        gx_func = interp1d(x=dt*np.arange(len(pulse_shape)), y=grads_shape[0,:])
-        gy_func = interp1d(x=dt*np.arange(len(pulse_shape)), y=grads_shape[1,:])
-        gz_func = interp1d(x=dt*np.arange(len(pulse_shape)), y=grads_shape[2,:])
-        pulse_real_func = interp1d(x=dt*np.arange(len(pulse_shape)), y=np.real(pulse_shape))
-        pulse_imag_func = interp1d(x=dt*np.arange(len(pulse_shape)), y=np.imag(pulse_shape))
+        gx_func = interp1d(x=dt*np.arange(len(pulse_shape)), y=grads_shape[0,:],bounds_error=False,fill_value='extrapolate')
+        gy_func = interp1d(x=dt*np.arange(len(pulse_shape)), y=grads_shape[1,:],bounds_error=False,fill_value='extrapolate')
+        gz_func = interp1d(x=dt*np.arange(len(pulse_shape)), y=grads_shape[2,:],bounds_error=False,fill_value='extrapolate')
+        pulse_real_func = interp1d(x=dt*np.arange(len(pulse_shape)), y=np.real(pulse_shape),bounds_error=False,fill_value='extrapolate')
+        pulse_imag_func = interp1d(x=dt*np.arange(len(pulse_shape)), y=np.imag(pulse_shape),bounds_error=False,fill_value='extrapolate')
 
         return gx_func, gy_func, gz_func, pulse_real_func, pulse_imag_func
 
@@ -350,25 +423,55 @@ class NumSolverSpinGroup(SpinGroup):
 
 
     # Override RF method!
+    # TODO fix problem with using this in sequence simulation
+    # TODO override apply_rf
     def apply_rf_store(self, pulse_shape, grads_shape, dt):
         m = np.squeeze(self.m)
 
         ####
-        m_signal = np.zeros(len(pulse_shape), dtype=complex)
         magnetizations = np.zeros((3, len(pulse_shape) + 1))
         magnetizations[:, 0] = np.squeeze(m)
         ####
 
         # Set correct arguments to ivp solver ...
-        results = solve_ivp(fun=self.get_bloch_eqn(grads_shape,pulse_shape,dt), t_span=[0,len(pulse_shape)*dt-dt],
-                            y0=m, method="RK45",t_eval=dt*np.arange(len(pulse_shape)), vectorized=True)
+        tspan = [0,(len(pulse_shape)-1)*dt]
+        teval = dt*np.arange(len(pulse_shape))
+        results = solve_ivp(fun=self.get_bloch_eqn(grads_shape,pulse_shape,dt), t_span=tspan,
+                            y0=m, method="RK45",t_eval=teval, vectorized=True)
 
         m_signal = results.y[0,:] + 1j*results.y[1,:]
         magnetizations = results.y
 
+        # Update spingroup magnetization
+        self.m = np.reshape(magnetizations[:,-1], (3,1))
+
         return m_signal, magnetizations
 
 
+class SpinGroupDiffusion(SpinGroup):
+    # Add D parameter as attribute
+    def __init__(self, loc=(0,0,0), pdt1t2=(1,0,0), df=0, D=0, b=0):
+        # Diffusion coefficient in [(mm^2)/seconds]
+        super().__init__(loc, pdt1t2, df)
+        self.D = D
+        self.b = b
+
+    # Overwrite signal method
+    def get_m_signal(self):
+        """Gets spin group's transverse magnetization attenuated by pulse sequence diffusion effects
+           Note: this is a simple version of diffusion simulation using the exp(-bD) factor.
+
+        Returns
+        -------
+        m_signal : numpy.ndarray
+            Single complex number representing transverse magnetization
+            Real part      = Mx
+            Imaginary part = My
+
+        """
+        m_signal = np.exp(-self.b*self.D)*np.squeeze(self.PD*(self.m[0] + 1j * self.m[1]))
+
+        return m_signal
 
 
 
