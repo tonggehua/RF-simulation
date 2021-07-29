@@ -56,6 +56,10 @@ class SpinGroup:
         self.df = df
         self.signal=[]
 
+    def reset(self):
+        self.m = np.array([[0], [0], [1]])
+        self.signal = []
+
     def get_m_signal(self):
         """Gets spin group's transverse magnetization
 
