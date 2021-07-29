@@ -54,17 +54,16 @@ def simulate_rf(bw_spins, n_spins, pdt1t2, flip_angle, dt, pulse_type, dur = 0, 
     df_array = np.linspace(-bw_spins/2, bw_spins/2, n_spins)
 
     if solver=="Euler":
-        spins = [sg.SpinGroup(loc=(0, 0, 0), pdt1t2=pdt1t2, df=this_df) for this_df in df_array]
+        spins = [sg.SpinGroup(loc=(0,0,0), pdt1t2=pdt1t2, df=this_df) for this_df in df_array]
     else:
         spins = [sg.NumSolverSpinGroup(loc=(0,0,0),pdt1t2=pdt1t2, df=this_df) for this_df in df_array]
 
     tmodel, pulse_shape = make_rf_shapes(pulse_type=pulse_type,flip_angle=flip_angle, dt=dt, dur=dur, **kwargs)
 
     # No gradients - we are using the off-resonance parameter for making off-center spins
-    grads_shape = np.zeros((3, len(pulse_shape))) # TODO allow arbitrary linear gradients?
+    grads_shape = np.zeros((3, len(pulse_shape)))
 
     # Simulate
-    # TODO make sure that NumSolverSpinGroup also returns in the same format (in spingroup_ps.py)
     all_results = [spin.apply_rf_store(pulse_shape, grads_shape, dt) for spin in spins]
     #all_ms = [spin.apply_rf_solveivp_store(pulse_shape, grads_shape, dt)[0] for spin in spins]
     all_signals = np.array([result[0] for result in all_results])
@@ -292,7 +291,7 @@ if __name__ == '__main__':
     system = Opts(max_grad=32, grad_unit='mT/m', max_slew=130,
                   slew_unit='T/m/s', rf_ringdown_time=30e-6,
                   rf_dead_time=100e-6, adc_dead_time=20e-6)
-    flip = pi
+    flip = pi/2
     thk = 5e-3
     rf, g_ss, __ = make_sinc_pulse(flip_angle=flip, system=system, duration=4e-3, slice_thickness=thk,
                               apodization=0.5, time_bw_product=4, return_gz=True)
@@ -312,6 +311,6 @@ if __name__ == '__main__':
                       solver="RK45",
                       pulse_type='custom', pulse_shape=rf.signal/GAMMA_BAR, display=False)
     print(magnetizations.shape)
-    savemat('sinc180_sim_results_5mm_100spins.mat',{'finals_magnetizations': magnetizations[:,:,-1]})
+    savemat('sinc90_sim_results_5mm_100spins.mat',{'finals_magnetizations': magnetizations[:,:,-1]})
 
 
