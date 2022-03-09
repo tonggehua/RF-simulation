@@ -1,16 +1,21 @@
 # Simulate the spatial-spectral response from the MSI sequence in development
+# Import functions
 from pypulseq.Sequence.sequence import Sequence
+from pypulseq.calc_duration import calc_duration
+from bloch.spingroup_ps_t2star import SpinGroupT2star
 import bloch.spingroup_ps as sg
 import numpy as np
 from scipy.io import savemat
+
+GAMMA_BAR = 42.58e6
+
+
 # Make a grid of spins in spatial-spectral space and apply pulse+gradients / delays
 # For now, just do {90(+Gz), delay, 180(-Gz)} (turbo_factor = 1)
-GAMMA_BAR = 42.58e6
-# Load mock sequence and extract the necessary information
-seq = Sequence()
 
-#seq.read('2dmsi_sim.seq')
-seq.read('2dmsi_sim_single_slice_19bins_800Hz_per_bin.seq')
+# Load mock sequence (?) and extract the necessary information
+seq = Sequence()
+seq.read('seqs/2dmsi_sim_single_slice_19bins_800Hz_per_bin_TE0.5.seq')
 
 # Extract RF(90), delay, RF(180)
 
@@ -23,7 +28,8 @@ dfs = np.linspace(-7600, 5400, 16, endpoint=True)
 
 for z in zs:
     for df in dfs:
-        newspin = sg.NumSolverSpinGroup(loc=(0, 0, z), pdt1t2=(1,0,0), df=df)
+        #newspin = sg.NumSolverSpinGroup(loc=(0, 0, z), pdt1t2=(1,0,0), df=df)
+        newspin = SpinGroupT2star(loc=(0, 0, z), pdt1t2=(1,1,0.5), df=df, t2star=0.02, num_spins=20)
         spins_list.append(newspin)
 
 blk = 4
@@ -35,7 +41,9 @@ while (blk+3) <= 7: # len(seq.dict_block_events): # Over all slices and all
     grad90 = seq.get_block(blk).gz
     rf180 = seq.get_block(blk+2).rf
     grad180 = seq.get_block(blk+2).gz
-    delay_time = seq.get_block(blk+1).delay.delay
+    delay_time_1 = seq.get_block(blk+1).delay.delay
+
+    delay_time_2 = delay_time_1 + calc_duration(rf90)/2
 
     dt90 = rf90.t[1] - rf90.t[0]
     pulse_shape_90 = rf90.signal/GAMMA_BAR
@@ -56,19 +64,15 @@ while (blk+3) <= 7: # len(seq.dict_block_events): # Over all slices and all
 
     spin = spins_list[0]
     results90 = [spin.apply_rf_store(pulse_shape_90, grads_shape_90, dt90)[0][-1] for spin in spins_list]
-    __ = [spin.delay(delay_time) for spin in spins_list]
+    __ = [spin.delay(delay_time_1) for spin in spins_list]
     results180 = [spin.apply_rf_store(pulse_shape_180, grads_shape_180, dt180)[0][-1] for spin in spins_list]
-
+    __ = [spin.delay(delay_time_2) for spin in spins_list]
 
     for spin in spins_list: spin.reset()
 
     count += 1
     print(f'Pulse #{count} simulated.')
 
-savemat('msi_sim_results_1st_pulse_pair_exp1wideBW_2ndbin_bindisptest.mat',
+savemat('msi_sim_results_TE500ms_added_delay_t2star_ns_030722.mat',
         {'after_1st': results90, 'after_2nd': results180,'zs':zs, 'dfs':dfs, 'shape':np.array([len(dfs),len(zs)])})
-
-
-
-
 

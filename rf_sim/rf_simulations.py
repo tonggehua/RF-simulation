@@ -17,6 +17,7 @@ from pypulseq.make_arbitrary_rf import make_arbitrary_rf
 from scipy.io import savemat
 
 
+
 # Constants
 GAMMA = 42.58e6 * 2 * pi
 
@@ -255,8 +256,10 @@ def make_rf_shapes(pulse_type, flip_angle, dt, dur=0, tmodel=None, **kwargs):
 if __name__ == '__main__':
     # Examples of simulation!
     pd = 1
-    t1 = 0.5
-    t2 = 0.05
+    t1 = 0
+    t2 = 0
+    #t1 = 0.5
+    #t2 = 0.05
     fa = 90
     dt_rf = 1e-6
     #simulate_rf(flip_angle=90, dt=1e-6, bw_spins=1e2, n_spins=7, pulse_type='block', dur = 10e-3)
@@ -288,13 +291,13 @@ if __name__ == '__main__':
 
 
     # This creates a pulseq sinc pulse (it has apodization)
-    system = Opts(max_grad=32, grad_unit='mT/m', max_slew=130,
-                  slew_unit='T/m/s', rf_ringdown_time=30e-6,
-                  rf_dead_time=100e-6, adc_dead_time=20e-6)
-    flip = pi/2
-    thk = 5e-3
-    rf, g_ss, __ = make_sinc_pulse(flip_angle=flip, system=system, duration=4e-3, slice_thickness=thk,
-                              apodization=0.5, time_bw_product=4, return_gz=True)
+    # system = Opts(max_grad=32, grad_unit='mT/m', max_slew=130,
+    #               slew_unit='T/m/s', rf_ringdown_time=30e-6,
+    #               rf_dead_time=100e-6, adc_dead_time=20e-6)
+    # flip = pi/2
+    # thk = 5e-3
+    # rf, g_ss, __ = make_sinc_pulse(flip_angle=flip, system=system, duration=4e-3, slice_thickness=thk,
+    #                           apodization=0.5, time_bw_product=4, return_gz=True)
 
 
     # Simulate a basic sinc pulse (no apodization )
@@ -304,13 +307,50 @@ if __name__ == '__main__':
     #a = simulate_rf(bw_spins=25e3, n_spins=5, pdt1t2=(pd, t1, t2), flip_angle=90, dt=dt_rf,
      #                solver="RK45",
       #               pulse_type='sinc', nzc=8, bw_rf=5e3)
+
+    # 073021 : Simulate the sinc pulse used in 3D UTE
+    # system = Opts(max_grad=32, grad_unit='mT/m', max_slew=130, slew_unit='T/m/s',
+    #               rf_ringdown_time=30e-6, rf_dead_time=100e-6, adc_dead_time=20e-6)
+    # slab_thk = 200e-3
+    # ro_asymmetry = 0
+    # rf_center = 0.5
+    # FA = 5 # degrees
+    # rf, gz, gz_reph = make_sinc_pulse(flip_angle=FA * np.pi / 180, duration=1e-3, slice_thickness=slab_thk,
+    #                                   apodization=0.5,
+    #                                   time_bw_product=2, center_pos=rf_center, system=system, return_gz=True)
+    # GAMMA_BAR = GAMMA/(2*np.pi)
+    # rf_dt = rf.t[1] - rf.t[0]
+    # print(f'Slice bw : {slab_thk*gz.amplitude} Hz')
+    # signals, magnetizations = simulate_rf(bw_spins=slab_thk*gz.amplitude, n_spins=100, pdt1t2=(1,0,0), flip_angle=90, dt=rf_dt,
+    #                   solver="RK45",
+    #                   pulse_type='custom', pulse_shape=rf.signal/GAMMA_BAR, display=False)
+    # print(magnetizations.shape)
+    # savemat('3dUTE_pulse_final_magnetizations.mat',{'finals_magnetizations': magnetizations[:,:,-1]})
+
+
+    # 080221 : Simulate the half-pulses used in 2D rw UTE  (pypulseq demo)
+    # Without slice refocusing!!!!!!
+
+    system = Opts(max_grad=32, grad_unit='mT/m', max_slew=130, slew_unit='T/m/s',
+                  rf_ringdown_time=30e-6, rf_dead_time=100e-6, adc_dead_time=20e-6)
+
+    # Sequence components
+    FA = 10 # deg
+    thk = 5e-3
+
+    #rf, gz, gz_reph = make_sinc_pulse(flip_angle=FA*np.pi/180, duration=1e-3, slice_thickness=thk, apodization=0.5,
+    #                                  time_bw_product=2, center_pos=1, system=system, return_gz=True)
+
+    rf, gz, gz_reph = make_sinc_pulse(flip_angle=FA*np.pi/180, duration=2e-3, slice_thickness=thk, apodization=0.5,
+                                      time_bw_product=2, center_pos=0.5, system=system, return_gz=True)
     GAMMA_BAR = GAMMA/(2*np.pi)
     rf_dt = rf.t[1] - rf.t[0]
-    print(f'Slice bw : {thk*g_ss.amplitude} Hz')
-    signals, magnetizations = simulate_rf(bw_spins=thk*g_ss.amplitude, n_spins=100, pdt1t2=(pd,t1,t2), flip_angle=90, dt=rf_dt,
-                      solver="RK45",
-                      pulse_type='custom', pulse_shape=rf.signal/GAMMA_BAR, display=False)
-    print(magnetizations.shape)
-    savemat('sinc90_sim_results_5mm_100spins.mat',{'finals_magnetizations': magnetizations[:,:,-1]})
+    print(f'Slice bw : {thk*gz.amplitude} Hz')
+    bwbw = 2*thk*gz.amplitude
+    signals, m = simulate_rf(bw_spins=bwbw, n_spins=200, pdt1t2=(1,0,0), flip_angle=90, dt=rf_dt,
+                       solver="RK45",
+                       pulse_type='custom', pulse_shape=rf.signal/GAMMA_BAR, display=False)
+    print(m.shape)
 
 
+    savemat('sim_results/2d_rw_UTE_fullpulse_matched_results.mat', {'m': m[:, :, -1], 'thk_sim': 2 * thk})
