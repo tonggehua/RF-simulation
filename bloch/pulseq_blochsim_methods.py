@@ -10,9 +10,9 @@ Methods to help Bloch simulation from pulseq objects
 import numpy as np
 import matplotlib.pyplot as plt
 import time
-import virtualscanner.server.simulation.bloch.phantom as pht
+import bloch.phantom as pht
 import multiprocessing as mp
-import virtualscanner.server.simulation.bloch.spingroup_ps as sg
+import bloch.spingroup_ps as sg
 
 from math import pi
 
