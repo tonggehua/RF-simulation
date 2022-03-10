@@ -20,7 +20,7 @@ setuptools.setup(
     license='License :: OSI Approved :: GNU Affero General Public License v3',
     name="RF-simulation",
     packages=setuptools.find_packages(),
-    python_requires='>=3.9.0',
+    python_requires='>=3.7.0',
     url="https://github.com/tonggehua/RF-simulation",
     version="1.0.0",
 )
