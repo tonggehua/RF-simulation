@@ -70,10 +70,10 @@ def simulate_rf(bw_spins, n_spins, pdt1t2, flip_angle, dt, pulse_type, dur = 0, 
     all_signals = np.array([result[0] for result in all_results])
     all_magnetizations = np.array([result[1] for result in all_results])
 
-    fig = plt.figure(1)
-    ax = fig.add_axes(xlim=(0, 4), ylim=(-2, 2))
-    for a in range(len(spins)):
-        pp = plt.plot(tmodel, np.absolute(all_signals[a]))
+    #fig = plt.figure(1)
+    #ax = fig.add_axes(xlim=(0, 4), ylim=(-2, 2))
+    #for a in range(len(spins)):
+    #    pp = plt.plot(tmodel, np.absolute(all_signals[a]))
 
 
     # Bandwidth info to print out
@@ -349,7 +349,7 @@ if __name__ == '__main__':
     bwbw = 2*thk*gz.amplitude
     signals, m = simulate_rf(bw_spins=bwbw, n_spins=200, pdt1t2=(1,0,0), flip_angle=90, dt=rf_dt,
                        solver="RK45",
-                       pulse_type='custom', pulse_shape=rf.signal/GAMMA_BAR, display=False)
+                       pulse_type='custom', pulse_shape=rf.signal/GAMMA_BAR, display=True)
     print(m.shape)
 
 
