@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 ###
 
 def run_simulation_time_resolved(t2=0.2,t2star=0.01,ideal_RF=False, n=100, dt=1e-4, display=True):
-    print(f'Using {n} spins for T2 star model')
+    #print(f'Using {n} spins for T2 star model')
     TE = 200e-3 # 200
     system = Opts()
     rf90 = make_sinc_pulse(flip_angle=np.pi/2, system=system, duration=2e-3,
@@ -36,7 +36,7 @@ def run_simulation_time_resolved(t2=0.2,t2star=0.01,ideal_RF=False, n=100, dt=1e
     # blcsim.apply_pulseq_commands(sg0, seq_info_SE, store_m=False)
 
     if not ideal_RF:
-        print("Using PyPulseq sinc pulses")
+        #print("Using PyPulseq sinc pulses")
         tmodel_SE = pars90[2] * np.arange(len(pars90[0]))
         # SE
         s0_SE, __ = sg0.apply_rf_store(pulse_shape=pars90[0], grads_shape=pars90[1], dt=pars90[2])
@@ -89,7 +89,7 @@ def run_simulation_time_resolved(t2=0.2,t2star=0.01,ideal_RF=False, n=100, dt=1e
 
 
     else:
-        print("Using ideal RF rotations")
+        #print("Using ideal RF rotations")
         tmodel_SE = np.array([0])
         # 90
         sg0.set_m(np.array([[1], [0], [0]]))
@@ -211,20 +211,16 @@ def run_simulation_time_resolved(t2=0.2,t2star=0.01,ideal_RF=False, n=100, dt=1e
     final_signals = np.absolute(np.array([s0_SE[-1],s1_SE[-1],s0_GRE[-1],s1_GRE[-1]]))
 
     # Print final values
-    print(f'T2 = {t2*1e3} ms; T2 star = {t2star*1e3} ms')
-    print(f'SE: {np.absolute(s0_SE[-1])} for no T2 star, {np.absolute(s1_SE[-1])} for T2 star; \
-             GRE: {np.absolute(s0_GRE[-1])} for no T2 star, {np.absolute(s1_GRE[-1])} for T2 star.')
+    #print(f'T2 = {t2*1e3} ms; T2 star = {t2star*1e3} ms')
+    #print(f'SE: {np.absolute(s0_SE[-1])} for no T2 star, {np.absolute(s1_SE[-1])} for T2 star; \
+       #      GRE: {np.absolute(s0_GRE[-1])} for no T2 star, {np.absolute(s1_GRE[-1])} for T2 star.')
 
     return results, final_signals
 
-def run_t2star_sim_histograms():
+def run_t2star_sim_histograms(num_spins=[4,20,100],repeats=50,nbins=5,use_ideal=True):
     t2 = 0.2
     t2star = 0.1
-    num_spins = [4,20,100]
     names = ['SE_s0','SE_s1','GRE_s0','GRE_s1']
-    repeats = 50
-    nbins = 10
-    use_ideal = True
 
     results_for_hist = np.zeros((len(num_spins),repeats,4))
 
@@ -252,6 +248,11 @@ def run_t2star_sim_histograms():
 
     plt.show()
 
+    return results_for_hist
+
+
 
 if __name__ == '__main__':
-    run_simulation_time_resolved(t2=0.2,t2star=0.1,ideal_RF=True, n=20, dt=1e-4, display=True)
+    #run_simulation_time_resolved(t2=0.2,t2star=0.1,ideal_RF=True, n=20, dt=1e-4, display=True)
+    results = run_t2star_sim_histograms(use_ideal=False) # using Ideal RF
+    savemat('../rf_sim/msi/t2star_hist_data_pypulseq.mat', {'results': results})

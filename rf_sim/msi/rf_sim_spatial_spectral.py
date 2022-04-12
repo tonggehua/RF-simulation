@@ -82,33 +82,63 @@ def diamond_sim_ver1():
 
 
 
-def diamond_sim(save_data=False):
+def diamond_sim(save_data=False,ideal=False):
     # Spatial-spectral simulation
 
+    bw_tot = 500
+    nb = 1
+    rfbw = bw_tot/nb
+    TE = 26.4e-3
+
     # Make sequence
-    seqs, sl_locs, bin_centers = make_2dmsi_RF_seq(TE=500e-3, nbins=1, n_slices=1, thk=5e-3, gap=5e-3, bw=500,
-                                                   use_sigpy_90=False, use_sigpy_180=False)
+    seqs, sl_locs, bin_centers, gs_spr = make_2dmsi_RF_seq(TE=TE, nbins=nb, n_slices=1, thk=5e-3, gap=5e-3, bw=bw_tot,
+                                                   use_sigpy_90=True, use_sigpy_180=True)
 
     # Make spins
     # Use WM: t2 = 110 ms, t2* = 80 ms
-    zs, dfs, spins_list = make_spatial_spectral_spins(fov=30e-3, nz=12, bw=2.5e3, nbins=13,
-                                                      t2=110e-3, t2star=80e-3, num_spins=25)
+    zs, dfs, spins_list = make_spatial_spectral_spins(fov=30e-3, nz=24, bw=2.5e3, nbins=25,
+                                                      t2=110e-3, t2star=10e-3, num_spins=25)
 
     print('zs : ', zs)
     print('dfs : ', dfs)
 
+
     # Simulate!
-    # one first; then do more
     seq = seqs[0]
-    seq_info = blcsim.store_pulseq_commands(seq)
-    results = [blcsim.apply_pulseq_commands(sg,seq_info,store_m=True) for sg in spins_list]
+
+    if ideal:
+
+        #TODO
+        #delay1 = calc_duration(seq.get_block(2).gz)*0.5 + calc_duration(seq.get_block(3).gz) \
+        #         + calc_duration(seq.get_block(4).gz)*0.5
+        #delay2 = calc_duration(seq.get_block(4).gz)*0.5 + calc_duration(seq.get_block(5).gz) + seq.get_block(6).delay.delay
+
+        delay0 = TE/2
+
+        gz1 = np.max(seq.get_block(2).gz.waveform[0])
+        gz2 = np.max(seq.get_block(4).gz.waveform[0])
+        for sg in spins_list:
+            # Ideal 90 (phase!)
+            sg.apply_ideal_RF(rf_phase=np.pi/2, fa=np.pi/2,f_low=-rfbw/2, f_high=rfbw/2, gradients=np.array([0,0,gz1]))
+            # Delay 1
+            #sg.delay(delay1)
+            sg.fpwg(grad_area=np.array([0,0,gs_spr.area])/GAMMA_BAR, t=delay0)
+            # Ideal 180 (phase!)
+            sg.apply_ideal_RF(rf_phase=0, fa=np.pi, f_low=-rfbw/2, f_high=rfbw/2,gradients=np.array([0,0,gz2]))
+            # Delay 2
+            sg.fpwg(grad_area=np.array([0,0,gs_spr.area])/GAMMA_BAR, t=delay0)
+
+    else:
+        seq_info = blcsim.store_pulseq_commands(seq)
+        results = [blcsim.apply_pulseq_commands(sg,seq_info,store_m=True) for sg in spins_list]
 
     signals_at_TE = [sg.get_m_signal() for sg in spins_list]
-    #for spin in spins_list: spin.reset()
-
     display_spatial_spectral_plot(signals_at_TE, zs, dfs)
+
     if save_data:
-        savemat('simulated_Data/results_msi2d_with_spoilers_n25_TE500_nosigpy.mat', {'results':results, 'signals_at_TE': signals_at_TE})
+        savemat('simulated_Data/results_msi2d_with_spoilers_n25_TE26p4_T2110-10_sigpy_idealRF.mat', {'results':results, 'signals_at_TE': signals_at_TE})
+
+
     return results, signals_at_TE, zs, dfs, sl_locs, bin_centers
 
 def display_spatial_spectral_plot(signals_at_TE, zs, dfs):
@@ -133,8 +163,8 @@ def make_spatial_spectral_spins(fov, nz, bw, nbins, t2, t2star, num_spins):
     return zs, dfs, spins_list
 
 def sim_rfs_from_seq():
-    seqs, sl_locs, bin_centers = make_2dmsi_RF_seq(TE=500e-3, nbins=1, n_slices=1, thk=5e-3, gap=5e-3, bw=800,
-                                                   use_sigpy_90=False, use_sigpy_180=False)
+    seqs, sl_locs, bin_centers, __ =  make_2dmsi_RF_seq(TE=500e-3, nbins=1, n_slices=1, thk=5e-3, gap=5e-3, bw=800,
+                                                            use_sigpy_90=False, use_sigpy_180=False)
     seq = seqs[0]
     rf90 = seq.get_block(2).rf
     rf180 = seq.get_block(4).rf
@@ -176,16 +206,12 @@ def make_rf_profile_plot(bw, m):
     plt.subplot(313)
     plt.plot(freqs, np.squeeze(m[:,2,-1]))
     plt.title('Mz')
-
-
     plt.show()
 
     return 0
 
 
-
-
 if __name__ == '__main__':
-    #diamond_sim(save_data=True)
-    sim_rfs_from_seq()
+    diamond_sim(save_data=True,ideal=True)
+    #sim_rfs_from_seq()
 

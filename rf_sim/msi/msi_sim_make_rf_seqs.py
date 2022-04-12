@@ -9,9 +9,10 @@ from pypulseq.make_gauss_pulse import make_gauss_pulse
 from rf_sim.msi.write_2D_MSI_sim_use import *
 import sigpy.mri.rf as rf_ext
 import rf_sim.msi.sigpy2pulseq as sp
-
+from rf_sim.rf_simulations import simulate_rf
+import matplotlib.pyplot as plt
 # Create shared phantom in 2D - z (slice),x (read) - stand-in
-
+GAMMA_BAR = 42.58e6
 
 # Make sequence commands (only RF and if needed, slice gradients. No readout or phase gradients)
 # 1. MAVRIC
@@ -21,7 +22,9 @@ def make_mavric_RF_seq(nbins=5, bw=1500, TR=2):
     seq = Sequence()
     bw_bin = bw/nbins
     offsets = get_rf_freq_offsets(nbins,bin_sep=bw_bin)
-    rf = make_block_pulse(flip_angle=np.pi / 2, duration=2.5e-3, freq_offset=0)
+
+    #rf = make_block_pulse(flip_angle=np.pi / 2, duration=2.5e-3, freq_offset=0)
+    rf = make_block_pulse(flip_angle=np.pi/2, bandwidth=bw_bin, time_bw_product=4,freq_offset=0)
     adc_single = make_adc(num_samples=1, dwell=10e-6, freq_offset=0, phase_offset=0)
     gro = make_trapezoid(channel='x', area=0, flat_time=calc_duration(adc_single))
     delayTR = make_delay(TR - calc_duration(rf)-calc_duration(adc_single))
@@ -38,12 +41,46 @@ def make_mavric_RF_seq(nbins=5, bw=1500, TR=2):
 # What type of RF? - Gauss, + gradient
 # Number of slices - consider overlap; display the slice overlap as a figure to help understanding the output
 #
-def make_semac_RF_seq(nbins=5, bw=1500, slab_thk=100e-3):
+def make_semac_RF_seq(nbins=5, bw_acq=2000, bw_grad=1500, pulse_bw_factor=1, fov_z=29e-3, TR=2):
+    """
+    nbins : int
+        Number of bins for SEMAC excitation
+    bw : float
+        Total bandwidth covered by SEMAC pulses [Hz]
+    TR : float
+        Repetition time [seconds]
+    fov_z : float
+        Field-of-view in the z direction
+    grad_bw_ratio : float
+
+
+    """
     seq = Sequence()
-    return seq
+    bw_bin = pulse_bw_factor * bw_acq / nbins
+    offsets = get_rf_freq_offsets(nbins, bin_sep=bw_bin)
+
+    tbw = 4
+    rf, gz, gzref = make_gauss_pulse(flip_angle=np.pi/2, bandwidth=bw_bin, slice_thickness=5e-3,
+                              duration=tbw/bw_bin, freq_offset=0, return_gz=True)
+
+    # Change gz so total BW of gradient is equal to grad_bw_ratio times the sequence bandwidth
+    new_g_amp = (bw_grad/fov_z)
+    new_thk = (5e-3) * (gz.amplitude/new_g_amp)
+    gz.amplitude = new_g_amp
+
+    adc_single = make_adc(num_samples=1, dwell=10e-6, freq_offset=0, phase_offset=0)
+    gro = make_trapezoid(channel='x', area=0, flat_time=calc_duration(adc_single))
+    delayTR = make_delay(TR - calc_duration(rf)-calc_duration(adc_single))
+
+    for b in range(nbins):
+        rf.freq_offset = offsets[b]
+        seq.add_block(rf, gz)
+        seq.add_block(delayTR)
+        seq.add_block(adc_single, gro)
+
+    return seq, new_thk
 
 # 3. 2D MSI
-
 def make_2dmsi_RF_seq(TE=500e-3, nbins=1, n_slices=1, thk=5e-3, gap=5e-3, bw=500,
                       use_sigpy_90=False, use_sigpy_180=False):
     ### Setup ###
@@ -83,8 +120,8 @@ def make_2dmsi_RF_seq(TE=500e-3, nbins=1, n_slices=1, thk=5e-3, gap=5e-3, bw=500
     if use_sigpy_180:
         tb = 4
         t_ref = tb / rfbw
-        pulse = rf_ext.slr.dzrf(n=int(round(t_ref / system.rf_raster_time)), tb=tb, ptype='st', ftype='ls',
-                                d1=0.01, d2=0.01, cancel_alpha_phs=True)
+        pulse = rf_ext.slr.dzrf(n=int(round(t_ref / system.rf_raster_time)), tb=tb, ptype='se', ftype='ls',
+                                d1=0.01, d2=0.01, cancel_alpha_phs=False)
         rf_ref, gz, gzr, _ = sp.sig_2_seq(pulse=pulse, flip_angle=np.pi, system=system, duration=t_ref,
                                       slice_thickness=thk, phase_offset=rf_ref_phase,use='refocusing',
                                       return_gz=True, time_bw_product=tb)
@@ -143,13 +180,14 @@ def make_2dmsi_RF_seq(TE=500e-3, nbins=1, n_slices=1, thk=5e-3, gap=5e-3, bw=500
             adc_single.phase_offset = 0
 
 
-            # Add blocks - no readout!!!
+            # Add blocks - with readout at the end.
             seq.add_block(gs1)
             seq.add_block(gs2, rf_ex)
             seq.add_block(gs3)
             seq.add_block(gs4, rf_ref)
             seq.add_block(gs5)
             seq.add_block(delayTE)
+            seq.add_block(adc_single)
 
 
             # PREV
@@ -160,8 +198,7 @@ def make_2dmsi_RF_seq(TE=500e-3, nbins=1, n_slices=1, thk=5e-3, gap=5e-3, bw=500
 
             seq_list.append(seq)
 
-    return seq_list, sl_locs, bin_centers
-
+    return seq_list, sl_locs, bin_centers, gs_spr
 
 def make_split_gradients(gs_ex, gs_spex, gs_ref, gs_spr):
     ch_ss = 'z'
@@ -197,8 +234,6 @@ def make_split_gradients(gs_ex, gs_spex, gs_ref, gs_spr):
 
     return gs1,gs2,gs3,gs4,gs5
 
-
-
 def get_slice_locations(n_slices, thk, gap, displacement):
     L = (n_slices - 1) * (thk + gap)
     sl_locs = displacement + np.arange(-L / 2, L / 2 + thk + gap, thk + gap)
@@ -217,7 +252,51 @@ def sim_msi_pulses(seq):
     # Simulate!
     return 0
 
+def sim_semac_pulses(seq):
+    rf = seq.get_block(1).rf
+    print(rf)
+    rf_dt = rf.t[1] - rf.t[0]
+    bw = 500
+    signals, m = simulate_rf(bw_spins=2*bw, n_spins=200, pdt1t2=(1,0,0), flip_angle=90, dt=rf_dt,
+                       solver="RK45",
+                       pulse_type='custom', pulse_shape=rf.signal/GAMMA_BAR, display=False)
+    make_rf_profile_plot(bw=2*bw, m=m)
 
+    return m
+
+
+def make_rf_profile_plot(bw, m):
+    mxy = m[:,0,-1] + 1j*m[:,1,-1]
+    freqs = np.linspace(-bw/2, bw/2, m.shape[0])
+    plt.figure(1)
+
+    plt.subplot(311)
+    plt.plot(freqs, np.absolute(mxy),)
+    plt.title("|Mxy|")
+    plt.ylabel('Magnetization (a.u.)')
+    plt.xlabel('Frequency (Hz)')
+
+    plt.subplot(312)
+    plt.plot(freqs, np.angle(mxy),label="Phase")
+    plt.title('Mxy phase')
+    plt.ylabel('Phase angle (radians)')
+    plt.xlabel('Frequency (Hz)')
+
+    plt.subplot(313)
+    plt.plot(freqs, np.squeeze(m[:,2,-1]))
+    plt.title('Mz')
+    plt.ylabel('Magnetization (a.u.)')
+    plt.xlabel('Frequency (Hz)')
+
+
+    plt.show()
+
+    return 0
 # Test!
 if __name__ == '__main__':
-    seq_list, sl_locs, bin_centers = make_2dmsi_RF_seq(TE=500e-3, nbins=3, n_slices=3, thk=5e-3, gap=5e-3, bw=500)
+    #seq_list, sl_locs, bin_centers = make_2dmsi_RF_seq(TE=500e-3, nbins=3, n_slices=3, thk=5e-3, gap=5e-3, bw=500)
+    # Simulate SEMAC pulses
+    seq, thk = make_semac_RF_seq()
+    print(f"Effective thk = {thk}")
+    sim_semac_pulses(seq)
+    # simulate_semac_pulses(seq)

@@ -13,7 +13,7 @@ import time
 import bloch.phantom as pht
 import multiprocessing as mp
 import bloch.spingroup_ps as sg
-
+import bloch.spingroup_ps_t2star as sg2
 from math import pi
 
 GAMMA_BAR = 42.5775e6
@@ -128,7 +128,8 @@ def apply_pulseq_commands(isc,seq_info,store_m=False):
         elif cstr == 'g': # free precessing with gradients
             isc.fpwg(grad_area=cpars[0],t=cpars[1])
         if store_m:
-            m_store[:,c] = isc.m[:,0]
+            #m_store[:,c] = isc.m[:,0]
+            m_store[:,c] = np.squeeze(isc.get_m())
 
     return m_store
 
@@ -197,7 +198,8 @@ def sim_single_spingroup_old(loc_ind,freq_offset,phantom,seq):
     return signal
 
 
-def sim_single_spingroup(loc_ind,freq_offset,phantom,seq_info,sg_type='Default',b=0):
+def sim_single_spingroup(loc_ind,freq_offset,phantom,seq_info,sg_type='Default',b=0,num_spins=25,
+                         output_type='signal'):
     """Function for applying a seq on a spin group and retrieving the signal
 
     Parameters
@@ -226,9 +228,16 @@ def sim_single_spingroup(loc_ind,freq_offset,phantom,seq_info,sg_type='Default',
     elif sg_type == 'Diffusion':
         isc = sg.SpinGroupDiffusion(loc=sgloc, pdt1t2=phantom.get_params(loc_ind),df=freq_offset,
                                     D=phantom.get_diffusion_coeff(loc_ind),b=b)
+    elif sg_type == 'T2Star':
+        isc = sg2.SpinGroupT2star(loc=sgloc, pdt1t2=phantom.get_params(loc_ind), df=freq_offset,
+                                  t2star=phantom.get_t2star(loc_ind),num_spins=num_spins)
 
     apply_pulseq_commands(isc,seq_info)
-    return isc.signal
+
+    if output_type == 'signal':
+        return isc.signal
+    elif output_type == 'spingroup':
+        return isc
 
 
 # Helpers
@@ -349,7 +358,11 @@ def find_precessing_time(blk,dt): # TODO
             g = blk.__getattribute__(g_name)
             tg = (g.rise_time + g.flat_time + g.fall_time) if g.type == 'trap' else len(np.squeeze(g.t))*dt
             grad_times.append(tg)
-    return max(grad_times)
+
+    if len(grad_times) != 0:
+        return max(grad_times)
+    else:
+        return 0.0
 
 
 def get_dB0_map(maptype=0):

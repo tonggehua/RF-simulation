@@ -34,7 +34,7 @@ class SpinGroupT2star(NumSolverSpinGroup):
             self.T2prime = 1/(1/t2star - 1/self.T2)
 
         # Initialize list of spins
-        self.spin_list = [NumSolverSpinGroup(loc=loc, pdt1t2=pdt1t2,df=0) for i in range(num_spins)]
+        self.spin_list = [NumSolverSpinGroup(loc=loc, pdt1t2=pdt1t2,df=df) for i in range(num_spins)]
         # Assign random frequencies using the
         #        inverse Cauchy-Lorentz cumuluative distribution
         if self.T2prime > 0:
@@ -50,6 +50,16 @@ class SpinGroupT2star(NumSolverSpinGroup):
     # Methods the same as SpinGroup:
     def scale_m_signal(self, scale):
         for spin in self.spin_list: spin.scale_m_signal(scale)
+
+    def get_m(self):
+        m = np.array([[0.0], [0.0], [0.0]])
+        for spin in self.spin_list:
+            m += spin.m
+        m /= self.num_spins
+        return m
+
+    def apply_ideal_RF(self, rf_phase, fa, f_low, f_high, gradients):
+        for spin in self.spin_list: spin.apply_ideal_RF(rf_phase,fa,f_low,f_high,gradients)
 
     def get_m_signal(self):
        # Get m signal - an average of all num_spins spins!
